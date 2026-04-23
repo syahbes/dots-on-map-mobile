@@ -1,7 +1,31 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { login as apiLogin, me as apiMe, signup as apiSignup, type User } from "@/api/auth";
 import { onAuthFailure } from "@/api/client";
+import { clearAll as clearPendingQueue } from "@/db/locationDb";
+import { stopTracking } from "@/location/tracking";
+import { notifyQueueChanged } from "@/network/flush";
 import { clearToken, setToken } from "./tokenStorage";
+
+/**
+ * Fully tear down tracking + any locally-buffered points. Called on sign-out
+ * and on any 401 from the API so that:
+ *   1. The phone stops hitting the server with a dead token.
+ *   2. Pending SQLite points (which belong to the previous user) don't leak
+ *      to whoever signs in next.
+ */
+async function teardownTrackingAndQueue() {
+  try {
+    await stopTracking();
+  } catch (err) {
+    console.warn("[auth] stopTracking failed", err);
+  }
+  try {
+    await clearPendingQueue();
+    notifyQueueChanged();
+  } catch (err) {
+    console.warn("[auth] clear queue failed", err);
+  }
+}
 
 type AuthStatus = "loading" | "signed-in" | "signed-out";
 
@@ -44,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return onAuthFailure(() => {
       setUser(null);
       setStatus("signed-out");
+      void teardownTrackingAndQueue();
     });
   }, []);
 
@@ -65,6 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    await teardownTrackingAndQueue();
     await clearToken();
     setUser(null);
     setStatus("signed-out");

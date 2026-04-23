@@ -1,12 +1,16 @@
+import * as Location from "expo-location";
 import React, {
   createContext,
   useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { AppState, type AppStateStatus } from "react-native";
+import { useAuth } from "@/auth/AuthContext";
+import { handleFix } from "./pipeline";
 import {
   getPermissionSnapshot,
   isTrackingActive,
@@ -42,8 +46,11 @@ const DEFAULT_PERMS: PermissionSnapshot = {
 const TrackingContext = createContext<TrackingContextValue | null>(null);
 
 export function TrackingProvider({ children }: { children: React.ReactNode }) {
+  const { status: authStatus } = useAuth();
   const [isOn, setIsOn] = useState<boolean>(false);
   const [permissions, setPermissions] = useState<PermissionSnapshot>(DEFAULT_PERMS);
+  const [appActive, setAppActive] = useState<boolean>(AppState.currentState === "active");
+  const watchRef = useRef<Location.LocationSubscription | null>(null);
 
   const refresh = useCallback(async () => {
     const [snap, active] = await Promise.all([getPermissionSnapshot(), isTrackingActive()]);
@@ -54,11 +61,83 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void refresh();
     const sub = AppState.addEventListener("change", (state: AppStateStatus) => {
-      // Re-sync when the user returns from Settings, etc.
+      setAppActive(state === "active");
       if (state === "active") void refresh();
     });
     return () => sub.remove();
   }, [refresh]);
+
+  // When the user signs out (or the API client forces a sign-out after a 401),
+  // AuthContext has already stopped the background task and cleared the queue;
+  // here we just resync our local `isOn` state so the foreground watch
+  // subscription also tears itself down.
+  useEffect(() => {
+    if (authStatus === "signed-out") {
+      void refresh();
+    }
+  }, [authStatus, refresh]);
+
+  // Foreground watch subscription.
+  //
+  // Why this exists in addition to the background task: on Android (especially
+  // emulators) the background task consumer tends to replay the same cached
+  // fix instead of delivering new ones as the user moves. A direct
+  // watchPositionAsync subscription gets fresh fixes reliably. We run it only
+  // while the app is active and the switch is on; when the app backgrounds,
+  // the background task takes over.
+  useEffect(() => {
+    const shouldWatch = isOn && appActive && permissions.foregroundGranted;
+
+    if (!shouldWatch) {
+      if (watchRef.current) {
+        watchRef.current.remove();
+        watchRef.current = null;
+      }
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const sub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 2_000,
+            distanceInterval: 0,
+          },
+          async (loc) => {
+            const { latitude, longitude, speed, heading } = loc.coords;
+            const capturedAt = new Date(loc.timestamp || Date.now()).toISOString();
+            console.log(
+              `[watch] fix t=${capturedAt} ${latitude.toFixed(5)},${longitude.toFixed(5)}`,
+            );
+            await handleFix({
+              latitude,
+              longitude,
+              speed: speed ?? null,
+              heading: heading ?? null,
+              capturedAt,
+            });
+          },
+        );
+        if (cancelled) {
+          sub.remove();
+          return;
+        }
+        watchRef.current = sub;
+      } catch (err) {
+        console.warn("[watch] failed to start", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (watchRef.current) {
+        watchRef.current.remove();
+        watchRef.current = null;
+      }
+    };
+  }, [isOn, appActive, permissions.foregroundGranted]);
 
   const setOn = useCallback<TrackingContextValue["setOn"]>(
     async (on) => {

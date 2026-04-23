@@ -1,11 +1,13 @@
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
-import NetInfo from "@react-native-community/netinfo";
-import { postLive } from "@/api/locations";
-import { enqueue, initLocationDb } from "@/db/locationDb";
-import { flushQueue, notifyQueueChanged } from "@/network/flush";
+import { handleFix } from "./pipeline";
 
 export const LOCATION_TASK_NAME = "dots-background-location";
+
+// Skip the Android JobScheduler-replay behaviour where the SAME cached fix is
+// re-delivered every few seconds on the emulator. A fix with the same
+// lat/lng/timestamp as the previous one is treated as a replay and dropped.
+let lastFixKey: string | null = null;
 
 /**
  * Background task. Defined at module top-level so it's registered before any
@@ -22,62 +24,24 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   const { locations } = data as { locations: Location.LocationObject[] };
   if (!locations || locations.length === 0) return;
 
-  try {
-    await initLocationDb();
-  } catch (err) {
-    console.warn("[task] failed to init db", err);
-    return;
-  }
-
-  // Determine whether we believe the device is online. NetInfo can be polled
-  // from a background task.
-  let online = true;
-  try {
-    const state = await NetInfo.fetch();
-    online = !!state.isConnected && state.isInternetReachable !== false;
-  } catch {
-    online = false;
-  }
-
   for (const loc of locations) {
     const { latitude, longitude, speed, heading } = loc.coords;
     const capturedAt = new Date(loc.timestamp || Date.now()).toISOString();
-
-    if (online) {
-      try {
-        await postLive({
-          latitude,
-          longitude,
-          speed: speed ?? null,
-          heading: heading ?? null,
-        });
-        continue;
-      } catch (err) {
-        // Fall through to enqueue.
-        console.warn("[task] live post failed, enqueueing", err);
-      }
+    const key = `${loc.timestamp}|${latitude}|${longitude}`;
+    if (key === lastFixKey) {
+      // Duplicate replay from JobScheduler — ignore.
+      continue;
     }
-
-    try {
-      await enqueue({
-        latitude,
-        longitude,
-        speed: speed ?? null,
-        heading: heading ?? null,
-        clientTsUtc: capturedAt,
-      });
-      notifyQueueChanged();
-    } catch (err) {
-      console.warn("[task] failed to enqueue", err);
-    }
-  }
-
-  // Opportunistic flush: if we appear online, try to drain.
-  if (online) {
-    try {
-      await flushQueue();
-    } catch (err) {
-      console.warn("[task] flush failed", err);
-    }
+    lastFixKey = key;
+    console.log(
+      `[task] fix t=${capturedAt} ${latitude.toFixed(5)},${longitude.toFixed(5)}`,
+    );
+    await handleFix({
+      latitude,
+      longitude,
+      speed: speed ?? null,
+      heading: heading ?? null,
+      capturedAt,
+    });
   }
 });
