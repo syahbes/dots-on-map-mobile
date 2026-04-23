@@ -14,7 +14,7 @@ type Props = {
   onSecondaryAction?: () => void;
 };
 
-const TONE_COLORS: Record<
+const LIGHT_TONES: Record<
   InfoBannerTone,
   { bg: string; border: string; text: string }
 > = {
@@ -22,6 +22,16 @@ const TONE_COLORS: Record<
   warning: { bg: "#FFF4E5", border: "#F5A623", text: "#8A4B00" },
   error: { bg: "#FDECEA", border: "#D93025", text: "#7A1F16" },
   success: { bg: "#E6F4EA", border: "#1E8E3E", text: "#0B6B2B" },
+};
+
+const DARK_TONES: Record<
+  InfoBannerTone,
+  { bg: string; border: string; text: string }
+> = {
+  info: { bg: "#0F2A4A", border: "#4285F4", text: "#D7E3FC" },
+  warning: { bg: "#3A2A0A", border: "#F5A623", text: "#FCE5B8" },
+  error: { bg: "#3A1512", border: "#D93025", text: "#F8C8C3" },
+  success: { bg: "#0F2A18", border: "#1E8E3E", text: "#BFE5CB" },
 };
 
 export function InfoBanner({
@@ -34,7 +44,7 @@ export function InfoBanner({
   onSecondaryAction,
 }: Props) {
   const theme = useTheme();
-  const palette = TONE_COLORS[tone];
+  const palette = (theme.dark ? DARK_TONES : LIGHT_TONES)[tone];
 
   return (
     <Surface

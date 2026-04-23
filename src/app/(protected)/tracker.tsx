@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import { useState } from "react";
 import { Linking, Platform, ScrollView, StyleSheet, View } from "react-native";
-import { Button, Divider, Switch, Text } from "react-native-paper";
+import { Button, Divider, Switch, Text, useTheme } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/auth/AuthContext";
@@ -18,6 +18,7 @@ function openSystemSettings() {
 }
 
 export default function TrackerScreen() {
+  const theme = useTheme();
   const { user, signOut } = useAuth();
   const { isOn, permissions, setOn, requestBackgroundPermission } = useTracking();
   const { isOnline, queuedCount, flushNow } = useNetwork();
@@ -36,7 +37,7 @@ export default function TrackerScreen() {
   const foregroundDenied = !permissions.foregroundGranted;
 
   return (
-    <SafeAreaView style={styles.safe} edges={["bottom"]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]} edges={["bottom"]}>
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
@@ -145,17 +146,22 @@ function StatusPill({
   value: string;
   ok: boolean;
 }) {
+  const theme = useTheme();
+  const okBg = theme.dark ? "#0F2A18" : "#E6F4EA";
+  const warnBg = theme.dark ? "#3A2A0A" : "#FFF4E5";
+  const okText = theme.dark ? "#BFE5CB" : "#0B6B2B";
+  const warnText = theme.dark ? "#FCE5B8" : "#8A4B00";
   return (
     <View
       style={[
         styles.pill,
-        { backgroundColor: ok ? "#E6F4EA" : "#FFF4E5", borderColor: ok ? "#1E8E3E" : "#F5A623" },
+        { backgroundColor: ok ? okBg : warnBg, borderColor: ok ? "#1E8E3E" : "#F5A623" },
       ]}
     >
       <Text variant="labelSmall" style={{ opacity: 0.6 }}>
         {label}
       </Text>
-      <Text variant="titleSmall" style={{ color: ok ? "#0B6B2B" : "#8A4B00" }}>
+      <Text variant="titleSmall" style={{ color: ok ? okText : warnText }}>
         {value}
       </Text>
     </View>

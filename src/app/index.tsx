@@ -1,7 +1,7 @@
 import { Link, Redirect, router } from "expo-router";
 import { useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
-import { Button, Text, TextInput } from "react-native-paper";
+import { Button, Text, TextInput, useTheme } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ApiError } from "@/api/client";
@@ -17,6 +17,7 @@ const ERROR_COPY: Record<string, string> = {
 };
 
 export default function SignUpScreen() {
+  const theme = useTheme();
   const { status, signUp } = useAuth();
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
@@ -46,7 +47,7 @@ export default function SignUpScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]} edges={["top", "bottom"]}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : "height"}

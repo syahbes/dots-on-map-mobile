@@ -114,3 +114,10 @@ src/
 ```bash
 bunx expo lint
 ```
+
+to run on real device:
+change api base url in app.json for example:
+
+```json
+"apiBaseUrl": "http://192.168.40.110:3000"
+```

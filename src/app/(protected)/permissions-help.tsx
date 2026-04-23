@@ -1,5 +1,5 @@
 import { Linking, Platform, ScrollView, StyleSheet } from "react-native";
-import { Button, Divider, Text } from "react-native-paper";
+import { Button, Divider, Text, useTheme } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 function openSystemSettings() {
@@ -11,8 +11,9 @@ function openSystemSettings() {
 }
 
 export default function PermissionsHelpScreen() {
+  const theme = useTheme();
   return (
-    <SafeAreaView style={styles.safe} edges={["bottom"]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]} edges={["bottom"]}>
       <ScrollView contentContainerStyle={styles.container}>
         <Text variant="headlineSmall" style={styles.title}>
           Enable background location
