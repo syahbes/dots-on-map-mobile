@@ -107,7 +107,7 @@ export default function TrackerScreen() {
           <InfoBanner
             tone="success"
             title="Tracking is ON"
-            description="Your location is being recorded \u2014 including when the app is in the background."
+description="Your location is being recorded - including when the app is in the background."
           />
         ) : null}
 

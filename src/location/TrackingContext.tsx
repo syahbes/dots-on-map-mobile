@@ -165,6 +165,13 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Turning ON: request foreground, then background (best-effort).
+      // On iOS, requestForeground() is a no-op if already denied — check first
+      // so we skip the unnecessary native round-trip and jump straight to the
+      // "open settings" error path.
+      const current = await getPermissionSnapshot();
+      if (current.foreground === "denied") {
+        return { ok: false, reason: "foreground-denied" };
+      }
       const fgStatus = await requestForeground();
       if (fgStatus !== "granted") {
         await refresh();
