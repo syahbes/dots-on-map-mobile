@@ -1,3 +1,4 @@
+import { useAuth } from "@/auth/AuthContext";
 import * as Location from "expo-location";
 import React, {
   createContext,
@@ -9,7 +10,6 @@ import React, {
   useState,
 } from "react";
 import { AppState, type AppStateStatus } from "react-native";
-import { useAuth } from "@/auth/AuthContext";
 import { handleFix } from "./pipeline";
 import {
   getPermissionSnapshot,
@@ -23,7 +23,11 @@ import {
 
 type ToggleResult =
   | { ok: true }
-  | { ok: false; reason: "foreground-denied" | "background-denied" | "error"; error?: unknown };
+  | {
+      ok: false;
+      reason: "foreground-denied" | "background-denied" | "error";
+      error?: unknown;
+    };
 
 type TrackingContextValue = {
   isOn: boolean;
@@ -48,12 +52,18 @@ const TrackingContext = createContext<TrackingContextValue | null>(null);
 export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const { status: authStatus } = useAuth();
   const [isOn, setIsOn] = useState<boolean>(false);
-  const [permissions, setPermissions] = useState<PermissionSnapshot>(DEFAULT_PERMS);
-  const [appActive, setAppActive] = useState<boolean>(AppState.currentState === "active");
+  const [permissions, setPermissions] =
+    useState<PermissionSnapshot>(DEFAULT_PERMS);
+  const [appActive, setAppActive] = useState<boolean>(
+    AppState.currentState === "active",
+  );
   const watchRef = useRef<Location.LocationSubscription | null>(null);
 
   const refresh = useCallback(async () => {
-    const [snap, active] = await Promise.all([getPermissionSnapshot(), isTrackingActive()]);
+    const [snap, active] = await Promise.all([
+      getPermissionSnapshot(),
+      isTrackingActive(),
+    ]);
     setPermissions(snap);
     setIsOn(active);
   }, []);
@@ -102,12 +112,14 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         const sub = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.High,
-            timeInterval: 2_000,
-            distanceInterval: 0,
+            timeInterval: 10_000,
+            distanceInterval: 10,
           },
           async (loc) => {
             const { latitude, longitude, speed, heading } = loc.coords;
-            const capturedAt = new Date(loc.timestamp || Date.now()).toISOString();
+            const capturedAt = new Date(
+              loc.timestamp || Date.now(),
+            ).toISOString();
             console.log(
               `[watch] fix t=${capturedAt} ${latitude.toFixed(5)},${longitude.toFixed(5)}`,
             );
@@ -187,7 +199,11 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     [isOn, permissions, refresh, setOn, requestBackgroundPermission],
   );
 
-  return <TrackingContext.Provider value={value}>{children}</TrackingContext.Provider>;
+  return (
+    <TrackingContext.Provider value={value}>
+      {children}
+    </TrackingContext.Provider>
+  );
 }
 
 export function useTracking(): TrackingContextValue {

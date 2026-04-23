@@ -53,10 +53,10 @@ export async function startTracking(opts: StartOptions = {}): Promise<void> {
 
   await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
     accuracy: Location.Accuracy.High,
-    timeInterval: 2_000, // 2s (Android) — lower for emulator testing
-    distanceInterval: 0, // fire on any change — lower for emulator testing
-    deferredUpdatesInterval: 0, // iOS: no batching
-    deferredUpdatesDistance: 0,
+    timeInterval: 10_000, // 10s (Android) — lower for emulator testing
+    distanceInterval: 10, // 10m (Android) — lower for emulator testing
+    deferredUpdatesInterval: 30_000, // 30s (iOS)
+    deferredUpdatesDistance: 10, // 10m (iOS)
     pausesUpdatesAutomatically: false,
     showsBackgroundLocationIndicator: true, // iOS "blue bar"
     foregroundService: opts.allowForegroundOnly

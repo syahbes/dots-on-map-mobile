@@ -1,56 +1,116 @@
-# Welcome to your Expo app 👋
+# dots-on-map — Mobile App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo / React Native app that continuously tracks the device's GPS location and ships fixes to a backend API. Works fully offline: fixes are buffered in SQLite and flushed automatically when connectivity is restored.
 
-## Get started
+## Running the app
 
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+Install dependencies first:
 
 ```bash
-npm run reset-project
+bun install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Then build and launch on a connected device or emulator:
 
-### Other setup steps
+```bash
+# Android (emulator or USB device)
+bunx expo run:android
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+# iOS (simulator or USB device)
+bunx expo run:ios
+```
 
-## Learn more
+> **Note:** `bunx expo run:*` performs a native build (requires Android Studio / Xcode). Use `bunx expo start` if you only want to run against Expo Go or an existing dev-client build.
 
-To learn more about developing your project with Expo, look at the following resources:
+## API configuration
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+The app talks to a backend. The base URL is resolved in this order:
 
-## Join the community
+1. `EXPO_PUBLIC_API_BASE_URL` environment variable (inlined at build time).
+2. `expo.extra.apiBaseUrl` in `app.json`.
+3. `http://localhost:3000` fallback (simulator only).
 
-Join our community of developers creating universal apps.
+On Android, `localhost` / `127.0.0.1` are automatically rewritten to `10.0.2.2` (the emulator's alias for the host machine).
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+For **physical devices** you must set the env var to your machine's LAN IP:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=http://192.168.1.42:3000 bunx expo run:android
+```
+
+See `src/config.ts` for the full resolution logic.
+
+## Location tracking architecture
+
+There are two parallel mechanisms for capturing GPS fixes. Both feed into the same `handleFix()` pipeline (`src/location/pipeline.ts`), so their output is identical.
+
+### Background task (`src/location/task.ts`)
+
+- Registered with `expo-task-manager` under the name `dots-background-location`.
+- Started/stopped via `startLocationUpdatesAsync` / `stopLocationUpdatesAsync` in `src/location/tracking.ts`.
+- Runs even when the app is **not in the foreground** (or is terminated on iOS with "Always" permission).
+- On Android a persistent foreground-service notification is shown while the task is active.
+- Duplicate fixes replayed by the Android JobScheduler are detected and silently dropped.
+
+### Foreground watch (`src/location/TrackingContext.tsx`)
+
+- A `watchPositionAsync` subscription managed inside `TrackingProvider`.
+- Active only while the app is **in the foreground** and tracking is enabled.
+- Exists because Android emulators tend to replay the same cached fix through the background task rather than delivering fresh ones. The watch subscription bypasses this and always returns real updates.
+- Automatically starts/stops based on `AppState` changes — when the app backgrounds, the watch tears down and the background task takes over.
+
+### Where to change the polling intervals
+
+Both mechanisms use matching values so you only need to change them in two places:
+
+**`src/location/tracking.ts`** — background task options:
+
+```ts
+timeInterval: 10_000,      // Android: minimum ms between updates
+distanceInterval: 10,      // Android: minimum metres between updates
+deferredUpdatesInterval: 30_000,  // iOS: batch delivery interval (ms)
+deferredUpdatesDistance: 10,      // iOS: batch delivery distance (m)
+```
+
+**`src/location/TrackingContext.tsx`** — foreground watch options:
+
+```ts
+timeInterval: 10_000,   // minimum ms between updates
+distanceInterval: 10,   // minimum metres between updates
+```
+
+Keep both files in sync. For testing on an emulator you can lower these values (e.g. `timeInterval: 2_000`, `distanceInterval: 0`).
+
+## Offline queue
+
+When a fix cannot be sent immediately (offline, server error, etc.) it is written to a local SQLite database (`src/db/locationDb.ts`). The flush logic in `src/network/flush.ts` drains the queue in batches of 100 whenever:
+
+- A live fix succeeds (triggers a background drain).
+- Network connectivity is restored (via `NetworkContext`).
+- The user taps **"Flush queued points now"** on the Tracker screen.
+
+Points rejected by the server for a client-side reason are permanently deleted to avoid infinite retries.
+
+## Project structure
+
+```
+src/
+  api/          HTTP client + endpoint wrappers
+  app/          Expo Router screens (file-based routing)
+  auth/         Auth context + secure token storage
+  config.ts     API base URL resolution
+  db/           SQLite offline queue
+  location/
+    task.ts         Background task definition
+    tracking.ts     start/stop helpers + interval config
+    TrackingContext.tsx  Foreground watch + React context
+    pipeline.ts     Shared fix handler (live post → queue fallback)
+  network/      NetInfo context + retro-batch flush
+  ui/           Shared UI components
+```
+
+## Linting
+
+```bash
+bunx expo lint
+```
