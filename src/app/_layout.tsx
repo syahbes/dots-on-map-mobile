@@ -1,16 +1,31 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import React from 'react';
-import { useColorScheme } from 'react-native';
+import { Stack } from "expo-router";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { PaperProvider } from "react-native-paper";
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+import { AuthProvider } from "@/auth/AuthContext";
+import { NetworkProvider } from "@/network/NetworkContext";
+import { TrackingProvider } from "@/location/TrackingContext";
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+// Register the background location task at top-level so it's available as
+// soon as the JS engine boots — including background re-launches.
+import "@/location/task";
+
+export default function RootLayout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <PaperProvider>
+        <AuthProvider>
+          <NetworkProvider>
+            <TrackingProvider>
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="index" />
+                <Stack.Screen name="sign-in" />
+                <Stack.Screen name="(protected)" />
+              </Stack>
+            </TrackingProvider>
+          </NetworkProvider>
+        </AuthProvider>
+      </PaperProvider>
+    </GestureHandlerRootView>
   );
 }

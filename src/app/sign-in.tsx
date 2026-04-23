@@ -9,17 +9,13 @@ import { useAuth } from "@/auth/AuthContext";
 import { InfoBanner } from "@/ui/InfoBanner";
 
 const ERROR_COPY: Record<string, string> = {
-  invalid_email: "That doesn't look like a valid email address.",
-  invalid_full_name: "Please enter your full name.",
-  password_too_short: "Password must be at least 6 characters.",
-  email_not_whitelisted: "This email isn't allowed to sign up yet. Ask an admin to whitelist it.",
-  email_already_registered: "An account with that email already exists. Try signing in instead.",
+  invalid_credentials: "Email or password is incorrect.",
+  invalid_credentials_shape: "Please enter a valid email and password.",
 };
 
-export default function SignUpScreen() {
-  const { status, signUp } = useAuth();
+export default function SignInScreen() {
+  const { status, signIn } = useAuth();
   const [email, setEmail] = useState("");
-  const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -32,11 +28,11 @@ export default function SignUpScreen() {
     setErrorMsg(null);
     setSubmitting(true);
     try {
-      await signUp({ email: email.trim(), fullName: fullName.trim(), password });
+      await signIn({ email: email.trim(), password });
       router.replace("/(protected)/tracker");
     } catch (err) {
       if (err instanceof ApiError) {
-        setErrorMsg(ERROR_COPY[err.code ?? ""] ?? err.message ?? "Sign-up failed.");
+        setErrorMsg(ERROR_COPY[err.code ?? ""] ?? err.message ?? "Sign-in failed.");
       } else {
         setErrorMsg("Network error. Is the backend running?");
       }
@@ -56,25 +52,16 @@ export default function SignUpScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <Text variant="displaySmall" style={styles.title}>
-            Create account
+            Welcome back
           </Text>
           <Text variant="bodyMedium" style={styles.subtitle}>
-            Sign up to start tracking your route.
+            Sign in to continue tracking.
           </Text>
 
           {errorMsg ? (
-            <InfoBanner tone="error" title="Sign-up failed" description={errorMsg} />
+            <InfoBanner tone="error" title="Sign-in failed" description={errorMsg} />
           ) : null}
 
-          <TextInput
-            label="Full name"
-            value={fullName}
-            onChangeText={setFullName}
-            mode="outlined"
-            autoCapitalize="words"
-            autoComplete="name"
-            style={styles.input}
-          />
           <TextInput
             label="Email"
             value={email}
@@ -91,7 +78,7 @@ export default function SignUpScreen() {
             onChangeText={setPassword}
             mode="outlined"
             secureTextEntry
-            autoComplete="new-password"
+            autoComplete="current-password"
             style={styles.input}
           />
 
@@ -99,17 +86,17 @@ export default function SignUpScreen() {
             mode="contained"
             onPress={onSubmit}
             loading={submitting}
-            disabled={submitting || !email || !fullName || !password}
+            disabled={submitting || !email || !password}
             style={styles.button}
           >
-            Sign up
+            Sign in
           </Button>
 
           <View style={styles.footer}>
-            <Text variant="bodyMedium">Already have an account?</Text>
-            <Link href="/sign-in" replace>
+            <Text variant="bodyMedium">Don&apos;t have an account?</Text>
+            <Link href="/" replace>
               <Text variant="bodyMedium" style={styles.link}>
-                Sign in
+                Sign up
               </Text>
             </Link>
           </View>
