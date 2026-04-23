@@ -77,8 +77,12 @@ export function InfoBanner({
             <Button
               mode="contained"
               onPress={onAction}
-              buttonColor={palette.border}
-              textColor={theme.colors.onPrimary}
+              buttonColor={
+                tone === "error" ? theme.colors.error : theme.colors.primary
+              }
+              textColor={
+                tone === "error" ? theme.colors.onError : theme.colors.onPrimary
+              }
               compact
             >
               {actionLabel}
