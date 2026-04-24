@@ -1,4 +1,23 @@
+import { fetchAuthSession } from "aws-amplify/auth";
+
 import { API_BASE_URL, API_KEY } from "@/config";
+
+/**
+ * Fetch the current Cognito access token. Amplify transparently refreshes it
+ * from the refresh token if it's expired (default: 60-minute access tokens,
+ * 30-day refresh tokens). Returns `null` when the user isn't signed in — the
+ * caller can decide whether that's fatal.
+ */
+async function getAccessToken(): Promise<string | null> {
+  try {
+    const session = await fetchAuthSession();
+    const token = session.tokens?.accessToken?.toString();
+    return token ?? null;
+  } catch (err) {
+    console.warn("[api] fetchAuthSession failed — sending request without auth", err);
+    return null;
+  }
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -23,9 +42,12 @@ type RequestOptions = {
 /**
  * Thin fetch wrapper for the geo-tracking backend.
  *
- * Every request automatically carries the shared `x-api-key` header that the
- * backend requires. There's no user-specific auth token right now — the user
- * identity is expressed by the `entityId` in each payload.
+ * Every request carries two credentials (transitional — the backend is still
+ * gating on `x-api-key` until JWT verification is wired up):
+ *   - `x-api-key: <shared key>` — the existing coarse gate, and
+ *   - `Authorization: Bearer <cognito-access-token>` — a JWT the backend
+ *     will eventually verify against the Cognito pool's JWKS and trust
+ *     `claims.sub` as the caller identity.
  */
 export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, signal } = opts;
@@ -35,10 +57,23 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
   };
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
+  // Attach the Cognito access token as a Bearer credential. The backend
+  // verifies it against the pool's JWKS and trusts `claims.sub` as the
+  // caller's identity. If there's no session we let the request go out
+  // unauthenticated and let the backend 401 — that's a cleaner failure mode
+  // than silently dropping the request.
+  const accessToken = await getAccessToken();
+  if (accessToken) {
+    headers["Authorization"] = `Bearer ${accessToken}`;
+  }
+
   const url = `${API_BASE_URL}${path}`;
   // DEV logging: print every outgoing request so we can verify the body
   // matches what the backend expects while we have no dashboard access.
-  console.log(`[api] → ${method} ${url}`, body ?? "(no body)");
+  console.log(
+    `[api] → ${method} ${url} auth=${accessToken ? "bearer" : "none"}`,
+    body ?? "(no body)",
+  );
 
   const startedAt = Date.now();
   let res: Response;
