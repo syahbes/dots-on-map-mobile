@@ -40,6 +40,27 @@ EXPO_PUBLIC_API_BASE_URL=http://192.168.1.42:3000 bunx expo run:android
 
 See `src/config.ts` for the full resolution logic.
 
+## Authentication
+
+The app authenticates users against an **AWS Cognito User Pool** (region `eu-west-2`) via [AWS Amplify v6](https://docs.amplify.aws/). There is no browser redirect or Hosted UI — sign-in happens natively using the SRP (`USER_SRP_AUTH`) flow.
+
+### Key details
+
+- **Invite-only** — the pool has self-service sign-up disabled. An admin must create user accounts through the backoffice.
+- **First login** — Cognito returns a `NEW_PASSWORD_REQUIRED` challenge on first sign-in. The sign-in screen detects this and routes the user to a new-password screen which calls `confirmNewPassword`.
+- **Identity** — after a successful sign-in, the Cognito `sub` claim (a stable UUID) is extracted from the ID token and persisted as the local `entityId`. Background tasks and API payloads use this value.
+- **Session persistence** — Amplify refreshes tokens automatically; on app launch `getCurrentUser()` restores the session without requiring re-authentication.
+
+### Amplify configuration
+
+Cognito credentials are public constants (no client secret) and are baked in at `src/auth/amplifyConfig.ts`. No additional environment variables are required for auth.
+
+| Constant | Value |
+|---|---|
+| Region | `eu-west-2` |
+| User Pool ID | `eu-west-2_OaSqr3Cmr` |
+| App Client ID | `274ng0a5mh96uq6l7bt95pd4s7` |
+
 ## Location tracking architecture
 
 There are two parallel mechanisms for capturing GPS fixes. Both feed into the same `handleFix()` pipeline (`src/location/pipeline.ts`), so their output is identical.
@@ -97,7 +118,10 @@ Points rejected by the server for a client-side reason are permanently deleted t
 src/
   api/          HTTP client + endpoint wrappers
   app/          Expo Router screens (file-based routing)
-  auth/         Auth context + secure token storage
+  auth/
+    amplifyConfig.ts   Amplify v6 Cognito setup (User Pool ID, Client ID)
+    AuthContext.tsx    React context — signIn / signOut / confirmNewPassword
+    entityStorage.ts   Secure storage for the persisted Cognito `sub`
   config.ts     API base URL resolution
   db/           SQLite offline queue
   location/
