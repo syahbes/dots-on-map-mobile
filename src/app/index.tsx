@@ -60,7 +60,7 @@ export default function SignUpScreen() {
             Create account
           </Text>
           <Text variant="bodyMedium" style={styles.subtitle}>
-            Sign up to start tracking your route.
+            Dev build: enter your entityId (e.g. `1876`) as the email. Password is ignored.
           </Text>
 
           {errorMsg ? (
@@ -77,7 +77,7 @@ export default function SignUpScreen() {
             style={styles.input}
           />
           <TextInput
-            label="Email"
+            label="Email / entityId"
             value={email}
             onChangeText={setEmail}
             mode="outlined"

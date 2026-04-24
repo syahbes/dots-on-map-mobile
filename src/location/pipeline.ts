@@ -1,6 +1,5 @@
-import { ApiError } from "@/api/client";
 import { postLive } from "@/api/locations";
-import { getToken } from "@/auth/tokenStorage";
+import { getEntityId } from "@/auth/entityStorage";
 import { enqueue, initLocationDb } from "@/db/locationDb";
 import { flushQueue, notifyQueueChanged } from "@/network/flush";
 
@@ -9,8 +8,9 @@ export type Fix = {
   longitude: number;
   speed?: number | null;
   heading?: number | null;
-  /** Time of fix, ISO. Used only when we enqueue (retro path). */
-  capturedAt: string;
+  accuracy?: number | null;
+  /** Epoch millis when the fix was captured on the device. */
+  capturedAt: number;
 };
 
 /**
@@ -19,7 +19,6 @@ export type Fix = {
  *   signed-out          → drop (nothing to post, and enqueueing would leak
  *                        these points to the next user who signs in).
  *   post 2xx            → done.
- *   post 401            → drop (auth is dead; same leak concern as above).
  *   post fails (offline
  *   / server / timeout) → enqueue to SQLite for later retro flush.
  *
@@ -34,10 +33,10 @@ export type Fix = {
  * identically.
  */
 export async function handleFix(fix: Fix): Promise<void> {
-  // No token = no user. Do not enqueue — those points have no owner on the
-  // server and must not bleed into the next sign-in.
-  const token = await getToken();
-  if (!token) return;
+  // No entityId = no signed-in user. Do not enqueue — those points have no
+  // owner on the server and must not bleed into the next sign-in.
+  const entityId = await getEntityId();
+  if (!entityId) return;
 
   try {
     await initLocationDb();
@@ -47,23 +46,18 @@ export async function handleFix(fix: Fix): Promise<void> {
   }
 
   try {
-    await postLive({
-      latitude: fix.latitude,
-      longitude: fix.longitude,
+    await postLive(entityId, {
+      lat: fix.latitude,
+      lng: fix.longitude,
       speed: fix.speed ?? null,
       heading: fix.heading ?? null,
+      accuracy: fix.accuracy ?? null,
+      ts: fix.capturedAt,
     });
     // If there is anything queued, try to drain it now too.
     void flushQueue();
     return;
   } catch (err) {
-    // Auth error — token is bad/expired. Do NOT enqueue: the API client has
-    // already cleared the token and broadcast a sign-out, and these points
-    // would otherwise end up attached to the next user.
-    if (err instanceof ApiError && err.status === 401) {
-      console.warn("[pipeline] 401 from /locations/live, dropping point");
-      return;
-    }
     console.warn("[pipeline] live post failed, enqueueing", err);
   }
 
@@ -73,7 +67,8 @@ export async function handleFix(fix: Fix): Promise<void> {
       longitude: fix.longitude,
       speed: fix.speed ?? null,
       heading: fix.heading ?? null,
-      clientTsUtc: fix.capturedAt,
+      accuracy: fix.accuracy ?? null,
+      ts: fix.capturedAt,
     });
     notifyQueueChanged();
   } catch (err) {

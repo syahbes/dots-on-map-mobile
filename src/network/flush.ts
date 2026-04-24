@@ -1,4 +1,5 @@
-import { postRetroBatch, type RetroPoint } from "@/api/locations";
+import { postRetroBatch, type LocationPing } from "@/api/locations";
+import { getEntityId } from "@/auth/entityStorage";
 import { deleteByIds, peekBatch } from "@/db/locationDb";
 
 const CHUNK_SIZE = 100;
@@ -25,60 +26,50 @@ export function notifyQueueChanged(): void {
 }
 
 /**
- * Drain pending points to /locations/retro in chunks.
- * Returns the number of points successfully flushed.
- * Safe to call concurrently — only one flush runs at a time.
+ * Drain pending points to `/v1/locations` in chunks. Returns the number of
+ * points successfully flushed. Safe to call concurrently — only one flush
+ * runs at a time.
+ *
+ * Each chunk is posted as one `pings` batch. The backend returns a single
+ * accept/reject for the whole batch, so on success we delete every row in the
+ * chunk, and on failure we leave the chunk in place for the next retry.
  */
 export async function flushQueue(): Promise<number> {
   if (running) return 0;
   running = true;
   let flushed = 0;
   try {
+    const entityId = await getEntityId();
+    if (!entityId) {
+      // No signed-in user — nothing we can legitimately attribute to anyone.
+      return 0;
+    }
+
     // Loop until the queue is empty or a chunk fails mid-flight.
     while (true) {
       const batch = await peekBatch(CHUNK_SIZE);
       if (batch.length === 0) break;
 
-      const points: RetroPoint[] = batch.map((row) => ({
-        latitude: row.latitude,
-        longitude: row.longitude,
+      const pings: LocationPing[] = batch.map((row) => ({
+        lat: row.latitude,
+        lng: row.longitude,
         speed: row.speed,
         heading: row.heading,
-        clientTsUtc: row.client_ts_utc,
+        accuracy: row.accuracy,
+        ts: row.ts,
       }));
 
-      let response;
       try {
-        response = await postRetroBatch(points);
+        await postRetroBatch(entityId, pings);
       } catch (err) {
         // Network / server error — stop and retry later.
         console.warn("[flush] retro batch failed, will retry later", err);
         break;
       }
 
-      // Server echoes input order. Collect IDs for rows that were:
-      //   - accepted (success — delete)
-      //   - rejected with client-side reason (malformed — delete to avoid infinite retry)
-      const rejectedIndices = new Set(response.rejected.map((r) => r.index));
-      const idsToDelete: number[] = batch
-        .map((row, idx) => ({ row, idx }))
-        .filter(({ idx }) => !rejectedIndices.has(idx))
-        .map(({ row }) => row.id)
-        // Also drop rejected rows permanently.
-        .concat(
-          batch
-            .filter((_, idx) => rejectedIndices.has(idx))
-            .map((row) => row.id),
-        );
-
-      if (idsToDelete.length > 0) {
-        await deleteByIds(idsToDelete);
-        flushed += response.accepted.length;
-        notifyQueueChanged();
-      }
-
-      // If the server accepted 0 points in this batch, treat as a hard failure and stop.
-      if (response.accepted.length === 0) break;
+      await deleteByIds(batch.map((row) => row.id));
+      flushed += batch.length;
+      notifyQueueChanged();
     }
   } finally {
     running = false;

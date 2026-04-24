@@ -56,7 +56,7 @@ export default function SignInScreen() {
             Welcome back
           </Text>
           <Text variant="bodyMedium" style={styles.subtitle}>
-            Sign in to continue tracking.
+            Dev build: enter your entityId (e.g. `1876`) as the email. Password is ignored.
           </Text>
 
           {errorMsg ? (
@@ -64,7 +64,7 @@ export default function SignInScreen() {
           ) : null}
 
           <TextInput
-            label="Email"
+            label="Email / entityId"
             value={email}
             onChangeText={setEmail}
             mode="outlined"

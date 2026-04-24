@@ -1,4 +1,6 @@
+import { postStatus } from "@/api/locations";
 import { useAuth } from "@/auth/AuthContext";
+import { getEntityId } from "@/auth/entityStorage";
 import * as Location from "expo-location";
 import React, {
   createContext,
@@ -20,6 +22,21 @@ import {
   stopTracking,
   type PermissionSnapshot,
 } from "./tracking";
+
+/**
+ * Best-effort "I'm online/offline" ping. We never let a failure here block the
+ * actual tracking toggle — if the user flips the switch and the network is
+ * down, we still want tracking to start/stop locally.
+ */
+async function announceStatus(status: "online" | "offline"): Promise<void> {
+  const entityId = await getEntityId();
+  if (!entityId) return;
+  try {
+    await postStatus(entityId, status);
+  } catch (err) {
+    console.warn(`[tracking] failed to POST status=${status}`, err);
+  }
+}
 
 type ToggleResult =
   | { ok: true }
@@ -116,10 +133,12 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
             distanceInterval: 0,
           },
           async (loc) => {
-            const { latitude, longitude, speed, heading } = loc.coords;
-            const capturedAt = new Date(
-              loc.timestamp || Date.now(),
-            ).toISOString();
+            const { latitude, longitude, speed, heading, accuracy } =
+              loc.coords;
+            // `loc.timestamp` can be a float on iOS (sub-millisecond
+            // precision). The backend validates `ts` as an integer, so
+            // truncate here.
+            const capturedAt = Math.trunc(loc.timestamp || Date.now());
             console.log(
               `[watch] fix t=${capturedAt} ${latitude.toFixed(5)},${longitude.toFixed(5)}`,
             );
@@ -128,6 +147,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
               longitude,
               speed: speed ?? null,
               heading: heading ?? null,
+              accuracy: accuracy ?? null,
               capturedAt,
             });
           },
@@ -157,6 +177,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         try {
           await stopTracking();
           await refresh();
+          void announceStatus("offline");
           return { ok: true };
         } catch (err) {
           await refresh();
@@ -186,6 +207,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       try {
         await startTracking({ allowForegroundOnly: bgStatus !== "granted" });
         await refresh();
+        void announceStatus("online");
         if (bgStatus !== "granted") {
           // Tracking is on, but only while app is open — surface to UI.
           return { ok: false, reason: "background-denied" };

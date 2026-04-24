@@ -1,17 +1,31 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { login as apiLogin, me as apiMe, signup as apiSignup, type User } from "@/api/auth";
-import { onAuthFailure } from "@/api/client";
 import { clearAll as clearPendingQueue } from "@/db/locationDb";
 import { stopTracking } from "@/location/tracking";
 import { notifyQueueChanged } from "@/network/flush";
-import { clearToken, getToken, setToken } from "./tokenStorage";
+import { clearEntityId, getEntityId, setEntityId } from "./entityStorage";
 
 /**
- * Fully tear down tracking + any locally-buffered points. Called on sign-out
- * and on any 401 from the API so that:
- *   1. The phone stops hitting the server with a dead token.
- *   2. Pending SQLite points (which belong to the previous user) don't leak
- *      to whoever signs in next.
+ * Local-only auth.
+ *
+ * There is no real backend auth yet. On sign-in / sign-up the user types their
+ * entityId (e.g. `1876`) into the email field and anything into the password
+ * field; we persist the entityId in SecureStore and use it as the payload
+ * owner for every geo-tracking API call. Real auth will replace this module
+ * when the backend is ready.
+ */
+export type User = {
+  /** The entityId the user typed on sign-in. */
+  id: string;
+  /** Mirror of `id` — kept so existing UI that reads `user.email` still works. */
+  email: string;
+  /** Empty until real signup exists. */
+  fullName: string;
+};
+
+/**
+ * Fully tear down tracking + any locally-buffered points on sign-out so
+ * pending SQLite points (which belong to the previous user) don't leak to
+ * whoever signs in next.
  */
 async function teardownTrackingAndQueue() {
   try {
@@ -39,32 +53,25 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function userFromEntityId(entityId: string, fullName = ""): User {
+  return { id: entityId, email: entityId, fullName };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [user, setUser] = useState<User | null>(null);
 
-  // Bootstrap: if a token exists, resolve the user via /auth/me. If there is
-  // no token, skip the network call entirely — otherwise a 401 from that
-  // unauthenticated /auth/me can race against a successful sign-in and wipe
-  // the freshly-stored token (visible on real iOS devices where the request
-  // takes long enough to still be in flight when the user signs in).
+  // Bootstrap from SecureStore — if an entityId was persisted on a previous
+  // launch, restore the signed-in state synchronously (no network).
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const token = await getToken();
-      if (!token) {
-        if (cancelled) return;
-        setUser(null);
-        setStatus("signed-out");
-        return;
-      }
-      try {
-        const { user } = await apiMe();
-        if (cancelled) return;
-        setUser(user);
+      const entityId = await getEntityId();
+      if (cancelled) return;
+      if (entityId) {
+        setUser(userFromEntityId(entityId));
         setStatus("signed-in");
-      } catch {
-        if (cancelled) return;
+      } else {
         setUser(null);
         setStatus("signed-out");
       }
@@ -74,35 +81,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // On any 401 from the API client, drop to signed-out.
-  useEffect(() => {
-    return onAuthFailure(() => {
-      setUser(null);
-      setStatus("signed-out");
-      void teardownTrackingAndQueue();
-    });
-  }, []);
-
   const signUp = useCallback(
     async (input: { email: string; fullName: string; password: string }) => {
-      const res = await apiSignup(input);
-      await setToken(res.accessToken);
-      setUser(res.user);
+      // No real signup yet — treat whatever the user entered in the "email"
+      // field as their entityId and persist it.
+      const entityId = input.email.trim();
+      await setEntityId(entityId);
+      setUser(userFromEntityId(entityId, input.fullName.trim()));
       setStatus("signed-in");
     },
     [],
   );
 
   const signIn = useCallback(async (input: { email: string; password: string }) => {
-    const res = await apiLogin(input);
-    await setToken(res.accessToken);
-    setUser(res.user);
+    // No real signin yet — same story as signUp.
+    const entityId = input.email.trim();
+    await setEntityId(entityId);
+    setUser(userFromEntityId(entityId));
     setStatus("signed-in");
   }, []);
 
   const signOut = useCallback(async () => {
     await teardownTrackingAndQueue();
-    await clearToken();
+    await clearEntityId();
     setUser(null);
     setStatus("signed-out");
   }, []);

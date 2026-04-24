@@ -25,8 +25,10 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   if (!locations || locations.length === 0) return;
 
   for (const loc of locations) {
-    const { latitude, longitude, speed, heading } = loc.coords;
-    const capturedAt = new Date(loc.timestamp || Date.now()).toISOString();
+    const { latitude, longitude, speed, heading, accuracy } = loc.coords;
+    // `loc.timestamp` can be a float on iOS (sub-millisecond precision).
+    // The backend validates `ts` as an integer, so truncate here.
+    const capturedAt = Math.trunc(loc.timestamp || Date.now());
     const key = `${loc.timestamp}|${latitude}|${longitude}`;
     if (key === lastFixKey) {
       // Duplicate replay from JobScheduler — ignore.
@@ -41,6 +43,7 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
       longitude,
       speed: speed ?? null,
       heading: heading ?? null,
+      accuracy: accuracy ?? null,
       capturedAt,
     });
   }
