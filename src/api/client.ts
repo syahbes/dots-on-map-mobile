@@ -35,9 +35,13 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
   const { method = "GET", body, auth = true, signal } = opts;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
+  let sentToken = false;
   if (auth) {
     const token = await getToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+      sentToken = true;
+    }
   }
 
   const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -70,7 +74,11 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
       ? String((parsed as { message: unknown }).message ?? "")
       : errorCode ?? `HTTP ${res.status}`;
 
-  if (res.status === 401) {
+  // Only treat a 401 as "our token is dead" if we actually sent one. A 401 on
+  // an unauthenticated request (e.g. bootstrap /auth/me before sign-in, or a
+  // bad-credentials response from /auth/login) must not clear a freshly-stored
+  // token or force-sign-out the user.
+  if (res.status === 401 && sentToken) {
     await clearToken();
     authFailureListeners.forEach((fn) => {
       try {

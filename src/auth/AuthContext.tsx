@@ -4,7 +4,7 @@ import { onAuthFailure } from "@/api/client";
 import { clearAll as clearPendingQueue } from "@/db/locationDb";
 import { stopTracking } from "@/location/tracking";
 import { notifyQueueChanged } from "@/network/flush";
-import { clearToken, setToken } from "./tokenStorage";
+import { clearToken, getToken, setToken } from "./tokenStorage";
 
 /**
  * Fully tear down tracking + any locally-buffered points. Called on sign-out
@@ -43,10 +43,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [user, setUser] = useState<User | null>(null);
 
-  // Bootstrap: if a token exists, resolve the user via /auth/me.
+  // Bootstrap: if a token exists, resolve the user via /auth/me. If there is
+  // no token, skip the network call entirely — otherwise a 401 from that
+  // unauthenticated /auth/me can race against a successful sign-in and wipe
+  // the freshly-stored token (visible on real iOS devices where the request
+  // takes long enough to still be in flight when the user signs in).
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const token = await getToken();
+      if (!token) {
+        if (cancelled) return;
+        setUser(null);
+        setStatus("signed-out");
+        return;
+      }
       try {
         const { user } = await apiMe();
         if (cancelled) return;
