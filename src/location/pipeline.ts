@@ -1,4 +1,3 @@
-import NetInfo from "@react-native-community/netinfo";
 import { ApiError } from "@/api/client";
 import { postLive } from "@/api/locations";
 import { getToken } from "@/auth/tokenStorage";
@@ -17,11 +16,19 @@ export type Fix = {
 /**
  * Handle a single location fix.
  *
- *   signed-out  → drop (nothing to post, and enqueueing would leak these
- *                points to the next user who signs in).
- *   online, 2xx → done.
- *   online, 401 → drop (auth is dead; same leak concern as above).
- *   offline / network error / 5xx → enqueue to SQLite for later retro flush.
+ *   signed-out          → drop (nothing to post, and enqueueing would leak
+ *                        these points to the next user who signs in).
+ *   post 2xx            → done.
+ *   post 401            → drop (auth is dead; same leak concern as above).
+ *   post fails (offline
+ *   / server / timeout) → enqueue to SQLite for later retro flush.
+ *
+ * NOTE: we intentionally do NOT consult NetInfo here. In a backgrounded /
+ * cold-started JS engine on iOS, `NetInfo.fetch()` can hang or return stale
+ * `isInternetReachable` values long enough that iOS kills the task before we
+ * ever POST. Always trying the POST first is both cheaper and more correct:
+ * if we really are offline, `fetch` rejects quickly and we fall through to
+ * the enqueue branch.
  *
  * Used by both the foreground watch and the background task so they behave
  * identically.
@@ -39,35 +46,25 @@ export async function handleFix(fix: Fix): Promise<void> {
     return;
   }
 
-  let online = true;
   try {
-    const state = await NetInfo.fetch();
-    online = !!state.isConnected && state.isInternetReachable !== false;
-  } catch {
-    online = false;
-  }
-
-  if (online) {
-    try {
-      await postLive({
-        latitude: fix.latitude,
-        longitude: fix.longitude,
-        speed: fix.speed ?? null,
-        heading: fix.heading ?? null,
-      });
-      // If there is anything queued, try to drain it now too.
-      void flushQueue();
+    await postLive({
+      latitude: fix.latitude,
+      longitude: fix.longitude,
+      speed: fix.speed ?? null,
+      heading: fix.heading ?? null,
+    });
+    // If there is anything queued, try to drain it now too.
+    void flushQueue();
+    return;
+  } catch (err) {
+    // Auth error — token is bad/expired. Do NOT enqueue: the API client has
+    // already cleared the token and broadcast a sign-out, and these points
+    // would otherwise end up attached to the next user.
+    if (err instanceof ApiError && err.status === 401) {
+      console.warn("[pipeline] 401 from /locations/live, dropping point");
       return;
-    } catch (err) {
-      // Auth error — token is bad/expired. Do NOT enqueue: the API client has
-      // already cleared the token and broadcast a sign-out, and these points
-      // would otherwise end up attached to the next user.
-      if (err instanceof ApiError && err.status === 401) {
-        console.warn("[pipeline] 401 from /locations/live, dropping point");
-        return;
-      }
-      console.warn("[pipeline] live post failed, enqueueing", err);
     }
+    console.warn("[pipeline] live post failed, enqueueing", err);
   }
 
   try {

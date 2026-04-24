@@ -113,7 +113,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           {
             accuracy: Location.Accuracy.High,
             timeInterval: 10_000,
-            distanceInterval: 10,
+            distanceInterval: 0,
           },
           async (loc) => {
             const { latitude, longitude, speed, heading } = loc.coords;
@@ -178,6 +178,10 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, reason: "foreground-denied" };
       }
       const bgStatus = await requestBackground();
+      console.log("[tracking] start opts", {
+        bgStatus,
+        allowForegroundOnly: bgStatus !== "granted",
+      });
 
       try {
         await startTracking({ allowForegroundOnly: bgStatus !== "granted" });

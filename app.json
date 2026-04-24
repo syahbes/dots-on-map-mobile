@@ -11,10 +11,7 @@
       "icon": "./assets/expo.icon",
       "bundleIdentifier": "com.shlomi-ppr.dots-on-map-mobile",
       "infoPlist": {
-        "UIBackgroundModes": [
-          "location",
-          "fetch"
-        ]
+        "UIBackgroundModes": ["location", "fetch"]
       }
     },
     "android": {
@@ -70,7 +67,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "apiBaseUrl": "http://localhost:3000"
+      "apiBaseUrl": "https://vercel-dots-on-map-server.vercel.app"
     }
   }
 }
