@@ -1,17 +1,36 @@
-import { Link, Redirect, router } from "expo-router";
+import { Redirect, router } from "expo-router";
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet } from "react-native";
 import { Button, Text, TextInput, useTheme } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { ApiError } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
 import { InfoBanner } from "@/ui/InfoBanner";
 
-const ERROR_COPY: Record<string, string> = {
-  invalid_credentials: "Email or password is incorrect.",
-  invalid_credentials_shape: "Please enter a valid email and password.",
-};
+/**
+ * Map Cognito error `name`s to friendly copy. The pool has
+ * `PreventUserExistenceErrors: ENABLED` so bad emails surface as
+ * `NotAuthorizedException` — we lump those in with wrong-password.
+ */
+function describeSignInError(err: unknown): string {
+  const name = err instanceof Error ? err.name : "";
+  switch (name) {
+    case "NotAuthorizedException":
+    case "UserNotFoundException":
+      return "Incorrect email or password.";
+    case "PasswordResetRequiredException":
+      return "An admin has reset your password. Use \"Forgot password?\" to set a new one.";
+    case "LimitExceededException":
+    case "TooManyRequestsException":
+      return "Too many attempts, please try again later.";
+    case "UserNotConfirmedException":
+      return "This account isn't confirmed yet. Contact your admin.";
+    case "NetworkError":
+      return "Network error. Check your connection and try again.";
+    default:
+      return err instanceof Error && err.message ? err.message : "Sign-in failed.";
+  }
+}
 
 export default function SignInScreen() {
   const theme = useTheme();
@@ -29,14 +48,14 @@ export default function SignInScreen() {
     setErrorMsg(null);
     setSubmitting(true);
     try {
-      await signIn({ email: email.trim(), password });
+      const { requiresNewPassword } = await signIn({ email: email.trim(), password });
+      if (requiresNewPassword) {
+        router.replace("/new-password");
+        return;
+      }
       router.replace("/(protected)/tracker");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setErrorMsg(ERROR_COPY[err.code ?? ""] ?? err.message ?? "Sign-in failed.");
-      } else {
-        setErrorMsg("Network error. Is the backend running?");
-      }
+      setErrorMsg(describeSignInError(err));
     } finally {
       setSubmitting(false);
     }
@@ -56,7 +75,7 @@ export default function SignInScreen() {
             Welcome back
           </Text>
           <Text variant="bodyMedium" style={styles.subtitle}>
-            Sign in to continue tracking.
+            Sign in with your PaperRound email and password.
           </Text>
 
           {errorMsg ? (
@@ -92,15 +111,6 @@ export default function SignInScreen() {
           >
             Sign in
           </Button>
-
-          <View style={styles.footer}>
-            <Text variant="bodyMedium">Don&apos;t have an account?</Text>
-            <Link href="/" replace>
-              <Text variant="bodyMedium" style={styles.link}>
-                Sign up
-              </Text>
-            </Link>
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -115,12 +125,4 @@ const styles = StyleSheet.create({
   subtitle: { marginBottom: 16, opacity: 0.7 },
   input: { marginTop: 8 },
   button: { marginTop: 20, paddingVertical: 4 },
-  footer: {
-    marginTop: 24,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 6,
-  },
-  link: { fontWeight: "600", textDecorationLine: "underline" },
 });

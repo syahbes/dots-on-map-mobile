@@ -1,5 +1,4 @@
-import { API_BASE_URL } from "@/config";
-import { clearToken, getToken } from "@/auth/tokenStorage";
+import { API_BASE_URL, API_KEY } from "@/config";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -18,38 +17,45 @@ export class ApiError extends Error {
 type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
-  auth?: boolean; // include Authorization header if token exists (default: true)
   signal?: AbortSignal;
 };
 
-type AuthFailureListener = () => void;
-const authFailureListeners = new Set<AuthFailureListener>();
-
-/** Subscribe to 401 responses so AuthContext can sign the user out. */
-export function onAuthFailure(listener: AuthFailureListener): () => void {
-  authFailureListeners.add(listener);
-  return () => authFailureListeners.delete(listener);
-}
-
+/**
+ * Thin fetch wrapper for the geo-tracking backend.
+ *
+ * Every request automatically carries the shared `x-api-key` header that the
+ * backend requires. There's no user-specific auth token right now — the user
+ * identity is expressed by the `entityId` in each payload.
+ */
 export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, auth = true, signal } = opts;
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const { method = "GET", body, signal } = opts;
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "x-api-key": API_KEY,
+  };
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  let sentToken = false;
-  if (auth) {
-    const token = await getToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-      sentToken = true;
-    }
-  }
 
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal,
-  });
+  const url = `${API_BASE_URL}${path}`;
+  // DEV logging: print every outgoing request so we can verify the body
+  // matches what the backend expects while we have no dashboard access.
+  console.log(`[api] → ${method} ${url}`, body ?? "(no body)");
+
+  const startedAt = Date.now();
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
+    });
+  } catch (err) {
+    console.warn(
+      `[api] ✕ ${method} ${url} — network error after ${Date.now() - startedAt}ms`,
+      err,
+    );
+    throw err;
+  }
 
   const text = await res.text();
   let parsed: unknown = null;
@@ -61,9 +67,19 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     }
   }
 
+  const durationMs = Date.now() - startedAt;
   if (res.ok) {
+    console.log(
+      `[api] ← ${res.status} ${method} ${url} (${durationMs}ms)`,
+      parsed ?? "(empty body)",
+    );
     return parsed as T;
   }
+
+  console.warn(
+    `[api] ← ${res.status} ${method} ${url} (${durationMs}ms)`,
+    parsed ?? "(empty body)",
+  );
 
   const errorCode =
     parsed && typeof parsed === "object" && "error" in parsed
@@ -73,21 +89,6 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     parsed && typeof parsed === "object" && "message" in parsed
       ? String((parsed as { message: unknown }).message ?? "")
       : errorCode ?? `HTTP ${res.status}`;
-
-  // Only treat a 401 as "our token is dead" if we actually sent one. A 401 on
-  // an unauthenticated request (e.g. bootstrap /auth/me before sign-in, or a
-  // bad-credentials response from /auth/login) must not clear a freshly-stored
-  // token or force-sign-out the user.
-  if (res.status === 401 && sentToken) {
-    await clearToken();
-    authFailureListeners.forEach((fn) => {
-      try {
-        fn();
-      } catch {
-        /* ignore */
-      }
-    });
-  }
 
   throw new ApiError(res.status, errorCode, errorMessage, parsed);
 }

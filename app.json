@@ -67,7 +67,9 @@
       "reactCompiler": true
     },
     "extra": {
-      "apiBaseUrl": "https://vercel-dots-on-map-server.vercel.app"
+      "apiBaseUrl": "https://development.geo-tracking.ppruk.net",
+      "tenantId": "paperround",
+      "entityType": "trunkingAgent"
     }
   }
 }
