@@ -14,10 +14,25 @@ export type Fix = {
 };
 
 /**
+ * Minimum gap between two live POSTs to `/v1/location`.
+ *
+ * Both the foreground `watch` subscription and the background `task` route
+ * fixes through `handleFix`, and on the iOS simulator's "City Run" (and
+ * similar high-frequency sources) each of them can deliver ~1 fix/second,
+ * producing ~2 POSTs/second. The backend doesn't need that resolution, so
+ * we rate-limit here and simply drop intermediate fixes.
+ */
+const LIVE_POST_MIN_INTERVAL_MS = 15_000;
+
+/** Timestamp (epoch millis) of the last attempted live POST. */
+let lastLivePostAt = 0;
+
+/**
  * Handle a single location fix.
  *
  *   signed-out          → drop (nothing to post, and enqueueing would leak
  *                        these points to the next user who signs in).
+ *   throttled           → drop (see LIVE_POST_MIN_INTERVAL_MS above).
  *   post 2xx            → done.
  *   post fails (offline
  *   / server / timeout) → enqueue to SQLite for later retro flush.
@@ -37,6 +52,15 @@ export async function handleFix(fix: Fix): Promise<void> {
   // owner on the server and must not bleed into the next sign-in.
   const entityId = await getEntityId();
   if (!entityId) return;
+
+  // Rate-limit: at most one live POST per LIVE_POST_MIN_INTERVAL_MS. We
+  // record the attempt time (not just successes) so a burst of failures
+  // can't bypass the throttle either.
+  const now = Date.now();
+  if (now - lastLivePostAt < LIVE_POST_MIN_INTERVAL_MS) {
+    return;
+  }
+  lastLivePostAt = now;
 
   try {
     await initLocationDb();
